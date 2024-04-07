@@ -7,10 +7,21 @@ import {
 	Setting,
 } from "obsidian";
 import { ChatModal, ImageModal, PromptModal, SpeechModal } from "./modal";
-import { OpenAIAssistant } from "./openai_api";
+import { OpenAIAssistant, OpenAIModels } from "./openai_api";
+import { CohereAIAssistant, CohereModels } from "./cohere_api";
+
+interface SettingTab {
+	models: { [key: string]: string };
+	imgModels: { [key: string]: string };
+}
+
+interface Settings {
+	provider: string;
+}
 
 interface AiAssistantSettings {
 	mySetting: string;
+	provider: string;
 	apiKey: string;
 	modelName: string;
 	imageModelName: string;
@@ -23,6 +34,7 @@ interface AiAssistantSettings {
 const DEFAULT_SETTINGS: AiAssistantSettings = {
 	mySetting: "default",
 	apiKey: "",
+	provider: "",
 	modelName: "gpt-3.5-turbo",
 	imageModelName: "dall-e-3",
 	maxTokens: 500,
@@ -34,12 +46,33 @@ const DEFAULT_SETTINGS: AiAssistantSettings = {
 export default class AiAssistantPlugin extends Plugin {
 	settings: AiAssistantSettings;
 	openai: OpenAIAssistant;
+	model: OpenAIAssistant | CohereAIAssistant;
 
 	build_api() {
+		switch (this.settings.provider) {
+			case "openai":
+				this.model = new OpenAIAssistant(
+					this.settings.apiKey,
+					this.settings.modelName,
+					this.settings.maxTokens,
+				);
+				break;
+			case "cohere":
+				this.model = new CohereAIAssistant(
+					this.settings.apiKey,
+					this.settings.modelName,
+					this.settings.maxTokens,
+				);
+				break;
+			default:
+				new Notice("Provider not supported!");
+				break;
+		}
+
 		this.openai = new OpenAIAssistant(
 			this.settings.apiKey,
 			this.settings.modelName,
-			this.settings.maxTokens
+			this.settings.maxTokens,
 		);
 	}
 
@@ -51,7 +84,7 @@ export default class AiAssistantPlugin extends Plugin {
 			id: "chat-mode",
 			name: "Open Assistant Chat",
 			callback: () => {
-				new ChatModal(this.app, this.openai).open();
+				new ChatModal(this.app, this.model).open();
 			},
 		});
 
@@ -63,14 +96,24 @@ export default class AiAssistantPlugin extends Plugin {
 				new PromptModal(
 					this.app,
 					async (x: { [key: string]: string }) => {
-						let answer = await this.openai.api_call([
-							{
-								role: "user",
-								content:
-									x["prompt_text"] + " : " + selected_text,
-							},
-						]);
-						answer = answer!;
+						// had to define any here because I ran into a weird scope issue when defining the variable in the if/else statement
+						let answer: any;
+						if (this.model.name == "openai") {
+							answer = await this.model.api_call([
+								{
+									role: "user",
+									content:
+										x["prompt_text"] +
+										" : " +
+										selected_text,
+								},
+							]);
+						} else {
+							answer = await this.model.api_call(
+								x["prompt_text"],
+								selected_text,
+							);
+						}
 						if (!this.settings.replaceSelection) {
 							answer = selected_text + "\n" + answer.trim();
 						}
@@ -79,7 +122,7 @@ export default class AiAssistantPlugin extends Plugin {
 						}
 					},
 					false,
-					{}
+					{},
 				).open();
 			},
 		});
@@ -96,20 +139,20 @@ export default class AiAssistantPlugin extends Plugin {
 							prompt["prompt_text"],
 							prompt["img_size"],
 							parseInt(prompt["num_img"]),
-							prompt["is_hd"] === "true"
+							prompt["is_hd"] === "true",
 						);
 						if (answer) {
 							const imageModal = new ImageModal(
 								this.app,
 								answer,
 								prompt["prompt_text"],
-								this.settings.imgFolder
+								this.settings.imgFolder,
 							);
 							imageModal.open();
 						}
 					},
 					true,
-					{ model: this.settings.imageModelName }
+					{ model: this.settings.imageModelName },
 				).open();
 			},
 		});
@@ -122,7 +165,7 @@ export default class AiAssistantPlugin extends Plugin {
 					this.app,
 					this.openai,
 					this.settings.language,
-					editor
+					editor,
 				).open();
 			},
 		});
@@ -136,7 +179,7 @@ export default class AiAssistantPlugin extends Plugin {
 		this.settings = Object.assign(
 			{},
 			DEFAULT_SETTINGS,
-			await this.loadData()
+			await this.loadData(),
 		);
 	}
 
@@ -147,10 +190,23 @@ export default class AiAssistantPlugin extends Plugin {
 
 class AiAssistantSettingTab extends PluginSettingTab {
 	plugin: AiAssistantPlugin;
+	setting_tab: SettingTab;
 
 	constructor(app: App, plugin: AiAssistantPlugin) {
 		super(app, plugin);
 		this.plugin = plugin;
+
+		switch (this.plugin.settings.provider) {
+			case "openai":
+				this.setting_tab = OpenAIModels;
+				break;
+			case "cohere":
+				this.setting_tab = CohereModels;
+				break;
+			default:
+				new Notice("Provider not supported");
+				break;
+		}
 	}
 
 	display(): void {
@@ -160,18 +216,52 @@ class AiAssistantSettingTab extends PluginSettingTab {
 		containerEl.createEl("h2", { text: "Settings for my AI assistant." });
 
 		new Setting(containerEl)
-			.setName("API Key")
-			.setDesc("OpenAI API Key")
-			.addText((text) =>
-				text
-					.setPlaceholder("Enter your key here")
-					.setValue(this.plugin.settings.apiKey)
-					.onChange(async (value) => {
-						this.plugin.settings.apiKey = value;
-						await this.plugin.saveSettings();
-						this.plugin.build_api();
+			.setName("Provider")
+			.setDesc("Select your provider")
+			.addDropdown((dropdown) =>
+				dropdown
+					.addOptions({
+						openai: "OpenAI",
+						cohere: "Cohere",
 					})
+					.setValue(this.plugin.settings.provider)
+					.onChange(async (value) => {
+						// save the current settings
+						await this.plugin.saveSettings();
+
+						// load the new settings
+						this.plugin.settings.provider = value;
+
+						switch (value) {
+							case "openai":
+								this.setting_tab = OpenAIModels;
+								break;
+							case "cohere":
+								this.setting_tab = CohereModels;
+								break;
+							default:
+								new Notice("Provider not supported");
+								break;
+						}
+
+						// console.log(this.setting_tab);
+
+						this.plugin.build_api();
+						// fresh the setting tab
+						this.display();
+					}),
 			);
+
+		new Setting(containerEl).setName("API Key").addText((text) =>
+			text
+				.setPlaceholder("Enter your key here")
+				.setValue(this.plugin.settings.apiKey)
+				.onChange(async (value) => {
+					this.plugin.settings.apiKey = value;
+					await this.plugin.saveSettings();
+					this.plugin.build_api();
+				}),
+		);
 		containerEl.createEl("h3", { text: "Text Assistant" });
 
 		new Setting(containerEl)
@@ -179,17 +269,13 @@ class AiAssistantSettingTab extends PluginSettingTab {
 			.setDesc("Select your model")
 			.addDropdown((dropdown) =>
 				dropdown
-					.addOptions({
-						"gpt-3.5-turbo": "gpt-3.5-turbo",
-						"gpt-4-turbo-preview": "gpt-4-turbo",
-						"gpt-4": "gpt-4",
-					})
+					.addOptions(this.setting_tab.models)
 					.setValue(this.plugin.settings.modelName)
 					.onChange(async (value) => {
 						this.plugin.settings.modelName = value;
 						await this.plugin.saveSettings();
 						this.plugin.build_api();
-					})
+					}),
 			);
 
 		new Setting(containerEl)
@@ -208,7 +294,7 @@ class AiAssistantSettingTab extends PluginSettingTab {
 							await this.plugin.saveSettings();
 							this.plugin.build_api();
 						}
-					})
+					}),
 			);
 
 		new Setting(containerEl)
@@ -239,23 +325,20 @@ class AiAssistantSettingTab extends PluginSettingTab {
 						} else {
 							new Notice("Image folder cannot be empty");
 						}
-					})
+					}),
 			);
 		new Setting(containerEl)
 			.setName("Image Model Name")
 			.setDesc("Select your model")
 			.addDropdown((dropdown) =>
 				dropdown
-					.addOptions({
-						"dall-e-3": "dall-e-3",
-						"dall-e-2": "dall-e-2",
-					})
+					.addOptions(this.setting_tab.imgModels)
 					.setValue(this.plugin.settings.imageModelName)
 					.onChange(async (value) => {
 						this.plugin.settings.imageModelName = value;
 						await this.plugin.saveSettings();
 						this.plugin.build_api();
-					})
+					}),
 			);
 
 		containerEl.createEl("h3", { text: "Speech to Text" });
@@ -268,7 +351,7 @@ class AiAssistantSettingTab extends PluginSettingTab {
 					.onChange(async (value) => {
 						this.plugin.settings.language = value;
 						await this.plugin.saveSettings();
-					})
+					}),
 			);
 	}
 }

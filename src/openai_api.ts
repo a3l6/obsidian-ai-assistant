@@ -1,12 +1,26 @@
+import { models } from "cohere-ai/api";
 import { MarkdownRenderer, MarkdownView, Notice } from "obsidian";
 
 import { OpenAI } from "openai";
+
+export const OpenAIModels = {
+	models: {
+		"gpt-3.5-turbo": "gpt-3.5-turbo",
+		"gpt-4-turbo-preview": "gpt-4-turbo",
+		"gpt-4": "gpt-4",
+	},
+	imgModels: {
+		"dall-e-3": "dall-e-3",
+		"dall-e-2": "dall-e-2",
+	},
+};
 
 export class OpenAIAssistant {
 	modelName: string;
 	apiFun: any;
 	maxTokens: number;
 	apiKey: string;
+	name: "openai";
 
 	constructor(apiKey: string, modelName: string, maxTokens: number) {
 		this.apiFun = new OpenAI({
@@ -16,6 +30,7 @@ export class OpenAIAssistant {
 		this.modelName = modelName;
 		this.maxTokens = maxTokens;
 		this.apiKey = apiKey;
+		this.name = "openai";
 	}
 
 	display_error = (err: any) => {
@@ -29,7 +44,7 @@ export class OpenAIAssistant {
 	api_call = async (
 		prompt_list: { [key: string]: string }[],
 		htmlEl?: HTMLElement,
-		view?: MarkdownView
+		view?: MarkdownView,
 	) => {
 		const streamMode = htmlEl !== undefined;
 		const has_img = prompt_list.some((el) => Array.isArray(el.content));
@@ -57,7 +72,7 @@ export class OpenAIAssistant {
 								responseText,
 								htmlEl,
 								"",
-								view
+								view,
 							);
 						} else {
 							htmlEl.innerHTML += responseText;
@@ -69,7 +84,7 @@ export class OpenAIAssistant {
 				return response.choices[0].message.content;
 			}
 		} catch (err) {
-			this.display_error(err);
+			this.display_error("Hiiiiiii");
 		}
 	};
 
@@ -78,7 +93,7 @@ export class OpenAIAssistant {
 		prompt: string,
 		img_size: string,
 		num_img: number,
-		is_hd: boolean
+		is_hd: boolean,
 	) => {
 		try {
 			const params: { [key: string]: string | number } = {};
