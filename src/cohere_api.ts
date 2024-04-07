@@ -59,7 +59,8 @@ export class CohereAIAssistant {
 		view?: MarkdownView,
 	) => {
 		try {
-			const streamMode = htmlEl !== undefined;
+			// Not working?
+			const streamMode = false; // htmlEl !== undefined;
 
 			if (streamMode) {
 				const stream = await this.cohere.chatStream({
@@ -90,7 +91,7 @@ export class CohereAIAssistant {
 					maxTokens: this.maxTokens,
 				});
 
-				return prediction;
+				return prediction.generations[0].text;
 			}
 		} catch (err) {
 			this.display_error(err);

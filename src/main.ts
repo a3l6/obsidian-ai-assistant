@@ -93,6 +93,7 @@ export default class AiAssistantPlugin extends Plugin {
 			name: "Open Assistant Prompt",
 			editorCallback: async (editor: Editor) => {
 				const selected_text = editor.getSelection().toString().trim();
+				new Notice(selected_text);
 				new PromptModal(
 					this.app,
 					async (x: { [key: string]: string }) => {

@@ -84,7 +84,7 @@ export class OpenAIAssistant {
 				return response.choices[0].message.content;
 			}
 		} catch (err) {
-			this.display_error("Hiiiiiii");
+			this.display_error(err);
 		}
 	};
 
